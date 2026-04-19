@@ -1,24 +1,23 @@
-yc managed-kubernetes cluster get-credentials --id <ID_кластера> --external
-$HOME/.kube/config
-kubectl cluster-info
-Kubernetes control plane is running at https://<ID_кластера>.managed.yandexcloud.net
-
-kubectl get nodes
-NAME         STATUS   ROLES                  AGE   VERSION
-
-Ready - все узлы готовы
-NotReady - хотя бы один узел не готов
-
-kubectl get <тип_ресурса>
-pods
-deployments
-services
-all
-
-kubectl get nodes -o wide
-NAME         STATUS   ROLES                  AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE             KERNEL-VERSION   CONTAINER-RUNTIME
-worker-0     Ready    <(роли)>               2m    v1.24.1   244.178.44.111   <external_IP>   Ubuntu 20.04.5 LTS   5.4.0-103-generic   containerd://c959b3d6d0c6e8b5b4b8a8f1c8b8b8b8b8b8b8b8
-
-kubectl top nodes
-NAME         CPU    MEMORY
-worker-0     1m     1Mi 
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+    name: my-ingress
+spec: 
+    rules:
+    - host: mydomain.com
+      http:
+        paths:
+        - path: /api
+          pathType: Prefix
+          backend:
+            service:
+              name: api-service
+              port:
+                number: 80
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: frontend-service
+              port:
+                number: 80
