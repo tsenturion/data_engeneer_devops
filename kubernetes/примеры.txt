@@ -3,12 +3,18 @@ kind: service
 metadata:
   name: front-end
   namesapce: shop
+  annotations:
+    service.beta.kubernetes.io/yanex-load-balancer-type: "external"
 spec:
-  type: NodePort
+  type: LoadBalancer
   ports:
-    - port: 80
+    - name: http
+      port: 80
       targetPort: 80
-      nodePort: 30001
+      protocol: TCP
+    - name https
+      port: 443
+      targetPort: 443
       protocol: TCP
   selector:
     app: front-end
