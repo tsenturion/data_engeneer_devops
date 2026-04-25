@@ -1,21 +1,8 @@
 apiVersion: v1
-kind: service
+kind: Service
 metadata:
-  name: front-end
-  namesapce: shop
-  annotations:
-    service.beta.kubernetes.io/yanex-load-balancer-type: "external"
+  name: payment-api
+  namespace: production
 spec:
-  type: LoadBalancer
-  ports:
-    - name: http
-      port: 80
-      targetPort: 80
-      protocol: TCP
-    - name https
-      port: 443
-      targetPort: 443
-      protocol: TCP
-  selector:
-    app: front-end
-    tier: web
+  type: ExternalName
+  externalName: api.payment-system.com
