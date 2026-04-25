@@ -11,4 +11,4 @@ spec:
   selector:
     app: hello
   loadBalancerIP: 159.161.32.22
-  externalTrafficPolicy: Cluster 
+  externalTrafficPolicy: Local
