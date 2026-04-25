@@ -1,6 +1,14 @@
-my-svc my-namespace
-my-svc.my-namespace.svc.cluster-domain.example
-my-svc
-my-svc.my-namespace
-
-pod-ip-address.my-namespace.pod.cluster-domain.example
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+      name: plaintext
+      targetPort: 8080
+  selector:
+    app: hello
+  loadBalancerIP: 159.161.32.22
+  externalTrafficPolicy: Cluster 
