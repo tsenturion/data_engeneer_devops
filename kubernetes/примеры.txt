@@ -1,14 +1,15 @@
 apiVersion: v1
 kind: service
 metadata:
-  name: back-end
-  namesapce: production
+  name: front-end
+  namesapce: shop
 spec:
-  type: ClusterIP
-  selector:
-    app: back-end
-    tier: api
+  type: NodePort
   ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 8080
+    - port: 80
+      targetPort: 80
+      nodePort: 30001
+      protocol: TCP
+  selector:
+    app: front-end
+    tier: web
