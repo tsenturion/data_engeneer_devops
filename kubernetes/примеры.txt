@@ -1,34 +1,11 @@
 apiVersion: v1
-kind: Node
-metadata:
-  name: node1
-spec:
-  taints:
-  - key: "key1"
-    value: "value1"
-    effect: "NoSchedule"
-
-
-apiVersion: v1
 kind: Pod
 metadata:
-  name: pod-a
+  name: nginx-pod
 spec:
   containers:
-  - name: app
-    image: nginx
-  tolerations:
-  - key: "key1"
-    operator: "Equal"
-    value: "value1"
-    effect: "NoSchedule"
-
-
-apiVersion: v1
-kind: Pod
-metadata:
-  name: pod-b
-spec:
-  containers:
-  - name: app
-    image: nginx
+  - name: nginx
+    image: nginx:latest
+  nodeSelector:
+    disktype: ssd
+    key: "value"
