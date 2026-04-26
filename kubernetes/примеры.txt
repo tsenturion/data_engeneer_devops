@@ -1,34 +1,31 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: DeamonSet
 metadata:
-  name: kafka
+  name: fluentd
 spec:
-  serviceName: "kafka"
-  replicas: 3
   selector:
     matchLabels:
-      app: kafka
+      app: fluentd
   template:
     metadata:
       labels:
-        app: kafka
+        app: fluentd
     spec:
+      nodeSelector:
+        kubernetes.io/os: linux
       containers:
-      - name: kafka
-        image: bitnami/kafka:latest
-        env:
-        - name: KAFKA_BROKER_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
+      - name: fluentd
+        image: fluent/fluentd:latest
         volumeMounts:
-        - name: kafka-data
-          mountPath: /bitnami/kafka
-  volumeClaimTemplates:
-  - metadata:
-      name: kafka-data
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 10Gi
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
