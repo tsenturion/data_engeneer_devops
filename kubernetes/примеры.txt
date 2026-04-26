@@ -1,36 +1,34 @@
-apiVersion: batch/v1
-kind: CronJob
+apiVersion: v1
+kind: Node
 metadata:
-  name: db-backup-cronjob
+  name: node1
 spec:
-  schedule: "0 0 * * *"
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: db-backup
-            image: postgres:latest
-            env:
-            - name: PGHOST
-              value: "postgres"
-            - name: PGDATABASE
-              value: "testdb"
-            - name: PGUSER
-              value: "postgres"
-            - name: PGPASSWORD
-              value: "password"
-            command:
-            - "sh"
-            - "-c"
-            - "pg_dump -h $PGHOST -U $PGUSER $PGDATABASE > /backup/db-backup-$(date +'%Y-%m-%d').sql"
-            volumeMounts:
-            - name: backup-volume
-              mountPath: /backup
-          restartPolicy: OnFailure
-          volumes:
-          - name: backup-volume
-            persistentVolumeClaim:
-              claimName: backup-pvc
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 1
+  taints:
+  - key: "key1"
+    value: "value1"
+    effect: "NoSchedule"
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-a
+spec:
+  containers:
+  - name: app
+    image: nginx
+  tolerations:
+  - key: "key1"
+    operator: "Equal"
+    value: "value1"
+    effect: "NoSchedule"
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-b
+spec:
+  containers:
+  - name: app
+    image: nginx
