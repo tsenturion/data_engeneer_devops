@@ -1,18 +1,29 @@
-apiVersion: networking.k8s.io/v1 
-kind: NetworkPolicy
-metadata: 
-  name: db-policy
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
 spec:
-  podSelector:
+  serviceName: "db"
+  replicas: 3
+  selector:
     matchLabels:
-      name: db-pod
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          name: backend-pod
-      ports: 
-    - protocol: TCP
-      port: 5432 
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
