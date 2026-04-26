@@ -1,32 +1,36 @@
 apiVersion: batch/v1
-kind: Job
+kind: CronJob
 metadata:
-  name: db-backup-Job
+  name: db-backup-cronjob
 spec:
-  template:
+  schedule: "0 0 * * *"
+  jobTemplate:
     spec:
-      containers:
-      - name: db-backup
-        image: postgres:latest
-        env:
-        - name: PGHOST
-          value: "postgres"
-        - name: PGDATABASE
-          value: "testdb"
-        - name: PGUSER
-          value: "postgres"
-        - name: PGPASSWORD
-          value: "password"
-        command:
-        - "sh"
-        - "-c"
-        - "pg_dump -h $PGHOST -U $PGUSER $PGDATABASE > /backup/db-backup.sql"
-        volumeMounts:
-        - name: backup-volume
-          mountPath: /backup
-        restartPolicy: OnFailure
-        volumes:
-        - name: backup-volume
-          persistentVolumeClaim:
-            claimName: backup-pvc
-  backoffLimit: 4
+      template:
+        spec:
+          containers:
+          - name: db-backup
+            image: postgres:latest
+            env:
+            - name: PGHOST
+              value: "postgres"
+            - name: PGDATABASE
+              value: "testdb"
+            - name: PGUSER
+              value: "postgres"
+            - name: PGPASSWORD
+              value: "password"
+            command:
+            - "sh"
+            - "-c"
+            - "pg_dump -h $PGHOST -U $PGUSER $PGDATABASE > /backup/db-backup-$(date +'%Y-%m-%d').sql"
+            volumeMounts:
+            - name: backup-volume
+              mountPath: /backup
+          restartPolicy: OnFailure
+          volumes:
+          - name: backup-volume
+            persistentVolumeClaim:
+              claimName: backup-pvc
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
