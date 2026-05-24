@@ -1,54 +1,59 @@
-app:
-    name: myapp
-    replicas: 3
+helm completion bash | sudo tee /etc/bash_completion.d/helm > /dev/null
+exec bash
+helm ins tab
+
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+helm search repo nginx
+
+bitnami/nginx
+bitnami/nginx-ingress-controller
+bitnami/nginx-intel
+
+CHART VERSION: 18.1.3
+APP VERSION: 1.27.0
+
+helm install my-realease bitnami/nginx -n web --create-namespace
+
+STATUS: deployed
+REVISION: 1
+
+kubectl get all -n web
+
+pod/
+service/
+deployment/
+replicaset/
+
+TYPE: LoadBalancer
+EXTERNAL-IP: 158.160.x.x
+
+custom-value.yaml
+replicaCount: 2
+staticSiteConfigmap: "index"
+
+{{ .Values.replicaCount }}
 
 
-replicas: {{ .Values.app.replicas }}
+kubectl apply -f configmap-index.yaml -n web
+helm upgrade my-release bitnami/nginx -n web -f custom-value.yaml
+
+REVISION: 2
+
+kubectl get all -n web
 
 
-image: 
-    repository: myapp/image
-    tag: latest
+helm history my-release -n web
 
-image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+REVISION: 1 Install complete
+REVISION: 2 Upgrade complete
 
+helm rollback my-release 1 -n web
 
-service:
-    type: ClusterIP
-    port: 80
+REVISION: 3 Rollback to 1
 
-spec:
-    type: {{ .Values.service.type }}
-    ports:
-        - port: {{ .Values.service.port }}
+helm upgrade my-release bitnami/nginx --atomic
 
-
-helm install myapp ./chart --set app.replicas=5
-helm install test-app ./chart --set app.replicas=1
-helm install prod-app ./chart --set app.replicas=10
-
-app:
-    replicas: 10
-
-image: 
-    tag: stable
-
-helm install prod-app ./chart -f production-values.yaml
-
-
-resources:
-    limits:
-        cpu: 500m
-        memory: 256Mi
-    requests:
-        cpu: 500m
-        memory: 256Mi
-
-
-resources:
-    limits:
-        cpu: {{ .Values.resources.limits.cpu }}
-        memory: {{ .Values.resources.limits.memory }}
-    requests:
-        cpu: {{ .Values.resources.requests.cpu }}
-        memory: {{ .Values.resources.requests.memory }}
+helm uninstall my-release -n web
+kubectl delete configmap index -n web
+--create-namespace
