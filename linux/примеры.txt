@@ -34,3 +34,21 @@ image:
     tag: stable
 
 helm install prod-app ./chart -f production-values.yaml
+
+
+resources:
+    limits:
+        cpu: 500m
+        memory: 256Mi
+    requests:
+        cpu: 500m
+        memory: 256Mi
+
+
+resources:
+    limits:
+        cpu: {{ .Values.resources.limits.cpu }}
+        memory: {{ .Values.resources.limits.memory }}
+    requests:
+        cpu: {{ .Values.resources.requests.cpu }}
+        memory: {{ .Values.resources.requests.memory }}
