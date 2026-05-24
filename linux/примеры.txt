@@ -1,18 +1,28 @@
+app:
+    name: myapp
+    replicas: 3
+
+
+replicas: {{ .Values.app.replicas }}
+
+
+image: 
+    repository: myapp/image
+    tag: latest
+
+image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+
+
+service:
+    type: ClusterIP
+    port: 80
+
 spec:
-    revisionHistoryLimit: 3
+    type: {{ .Values.service.type }}
+    ports:
+        - port: {{ .Values.service.port }}
 
-successfulJobsHistoryLimit: 3
-failedJobsHistoryLimit: 1
 
-
-1.4.12 13
-
-1.4.13 1.5.0
-
-1.x 2.x
-
-myapp:1.4.12
-myapp:1.4.13
-myapp:1.5.0
-myapp:stable
-myapp:lts
+helm install myapp ./chart --set app.replicas=5
+helm install test-app ./chart --set app.replicas=1
+helm install prod-app ./chart --set app.replicas=10
