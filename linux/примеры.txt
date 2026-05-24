@@ -26,3 +26,11 @@ spec:
 helm install myapp ./chart --set app.replicas=5
 helm install test-app ./chart --set app.replicas=1
 helm install prod-app ./chart --set app.replicas=10
+
+app:
+    replicas: 10
+
+image: 
+    tag: stable
+
+helm install prod-app ./chart -f production-values.yaml
