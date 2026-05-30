@@ -1,17 +1,10 @@
-memory: large
-
-storage: ssd
-
-environment: production
-
-nodeSelector:
-  key: "value"
-
-nodeSelector:
-  environment: production
-
-environment=production
-
-gpu: true
-
-accelerator=gpu
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+    - labelSelector:
+        matchExpressions:
+        - key: app
+          operator: In
+          values:
+          - myapp
+      topologyKey: "kubernetes.io/hostname"
