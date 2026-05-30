@@ -52,3 +52,6 @@ spec:
         resources:
           requests:
             storage: 10Gi
+
+
+kafka-0.kafka.default.svc.cluster.local
