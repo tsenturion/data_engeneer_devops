@@ -1,57 +1,31 @@
-apiVersion: v1
-kind: Service
-metadata:
-  name: kafka
-  labels:
-    app: kafka
-spec:
-  ports:
-    - port: 9092
-      name: kafka
-  clusterIP: None
-  selector:
-    app: kafka
-
----
 apiVersion: apps/v1
-kind: StatefulSet
+kind: DaemonSet
 metadata:
-  name: kafka
+  name: fluentd
 spec:
-  serviceName: kafka
-  replicas: 3
   selector:
     matchLabels:
-      app: kafka
+      app: fluentd
   template:
     metadata:
       labels:
-        app: kafka
+        app: fluentd
     spec:
+      nodeSelector:
+        kubernetes.io/os: linux    
       containers:
-        - name: kafka
-          image: confluentinc/cp-kafka:latest
-          ports:
-            - containerPort: 9092
-              name: kafka
-          volumeMounts:
-            - name: kafka-storage
-              mountPath: /var/lib/kafka/data
-          env:
-            - name: KAFKA_ZOOKEEPER_CONNECT
-              value: ...
-            - name: KAFKA_ADVERTISED_LISTENERS
-              value: ...
-            - ...
-  volumeClaimTemplates:
-    - metadata:
-        name: kafka-storage
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 10Gi
-
-
-kafka-0.kafka.default.svc.cluster.local
+      - name: fluentd
+        image: fluent/fluentd:latest
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
