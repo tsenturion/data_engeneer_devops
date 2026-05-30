@@ -1,41 +1,18 @@
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: db-backup-cronjob
-spec:
-  schedule: "0 0 * * *"  # Каждый день в полночь
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          containers:
-          - name: db-backup
-            image: postgres:latest
-            env:
-            - name: PGHOST
-              value: "postgres"
-            - name: PGDATABASE
-              value: "testdb"
-            - name: PGUSER
-              value: "postgres"
-            - name: PGPASSWORD
-              value: "password"
-            command:
-            - "sh"
-            - "-c"
-            - "pg_dump -h $PGHOST -U $PGUSER $PGDATABASE > /backup/db-backup-$(date +'%Y-%m-%d').sql"
-            volumeMounts:
-            - name: backup-volume
-              mountPath: /backup
-          restartPolicy: OnFailure
-          volumes:
-          - name: backup-volume
-            persistentVolumeClaim:
-              claimName: backup-pvc
-  successfulJobsHistoryLimit: 3
-  failedJobsHistoryLimit: 1
+kubectl taint nodes node1 key1=value1:NoSchedule
+kubectl taint nodes node1 key1=value1:PreferNoSchedule
+kubectl taint nodes node1 key1=value1:NoExecute
 
-kubectl describe cronjob db-backup-cronjob
+tolerations:
+- key: "key1"
+  operator: "Equal"
+  value: "value1"
+  effect: "NoSchedule"
 
-spec:
-  suspend: true
+tolerations:
+- key: "key1"
+  operator: "Exists"
+  effect: "NoSchedule"
+
+key1=value1:NoSchedule
+key1=value2:NoSchedule
+key1=gpyt:NoSchedule
