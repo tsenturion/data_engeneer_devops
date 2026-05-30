@@ -34,3 +34,8 @@ spec:
               claimName: backup-pvc
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
+
+kubectl describe cronjob db-backup-cronjob
+
+spec:
+  suspend: true
