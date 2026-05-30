@@ -1,18 +1,17 @@
-kubectl taint nodes node1 key1=value1:NoSchedule
-kubectl taint nodes node1 key1=value1:PreferNoSchedule
-kubectl taint nodes node1 key1=value1:NoExecute
+memory: large
 
-tolerations:
-- key: "key1"
-  operator: "Equal"
-  value: "value1"
-  effect: "NoSchedule"
+storage: ssd
 
-tolerations:
-- key: "key1"
-  operator: "Exists"
-  effect: "NoSchedule"
+environment: production
 
-key1=value1:NoSchedule
-key1=value2:NoSchedule
-key1=gpyt:NoSchedule
+nodeSelector:
+  key: "value"
+
+nodeSelector:
+  environment: production
+
+environment=production
+
+gpu: true
+
+accelerator=gpu
