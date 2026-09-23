@@ -367,10 +367,12 @@ psql -h 127.0.0.1 -p 5432 -U helpdesk_app -d helpdesk_lab
 В обоих случаях выполните:
 
 ```sql
-SELECT current_user, current_database();
+SELECT
+    current_user,
+    current_database();
 ```
 
-Студент должен понимать, что эти два подключения могут вести к одной базе, но использовать разные способы установления соединения.
+Нужно понимать, что эти два подключения могут вести к одной базе, но использовать разные способы установления соединения.
 
 ---
 
@@ -676,7 +678,12 @@ SELECT current_user;
 Для просмотра ролей подойдет:
 
 ```sql
-SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole
+SELECT
+    rolname,
+    rolcanlogin,
+    rolsuper,
+    rolcreatedb,
+    rolcreaterole
 FROM pg_roles;
 ```
 
