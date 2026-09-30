@@ -581,7 +581,9 @@ sudo apt install -y \
     liburing-dev \
     ca-certificates \
     curl \
-    tar
+    tar \
+    bzip2 \
+    chrony
 ```
 
 Проверить основные инструменты и библиотеки:
@@ -619,29 +621,50 @@ sudo apt install -y python3-openpyxl python3-reportlab
 
 Это Python-библиотеки, а не расширения PostgreSQL. Их устанавливают в окружение Python, используемое сервером.
 
+### Синхронизация времени Ubuntu
+
+Проверить `timedatectl status`. Если в базовой Ubuntu `/etc/chrony/chrony.conf` оказался пустым, восстановить штатный конфиг пакета:
+
+```bash
+if [ ! -s /etc/chrony/chrony.conf ] && [ -f /etc/chrony/chrony.conf.dist ]; then
+    sudo cp /etc/chrony/chrony.conf.dist /etc/chrony/chrony.conf
+fi
+sudo systemctl enable --now chrony
+sudo systemctl restart chrony
+chronyc sources
+```
+
+После синхронизации ожидается `System clock synchronized: yes`. Ansible также восстанавливает этот файл только при его отсутствии или нулевом размере.
+
 ## Шаг 9. Получение исходного кода PostgreSQL 18.6
 
-Основной способ — скачать архив непосредственно на `master1`:
+Основной источник — [зеркало Яндекса](https://mirror.yandex.ru/mirrors/postgresql/pool/main/p/postgresql-18/postgresql-18_18.6.orig.tar.bz2). На нём исходники PostgreSQL 18.6 опубликованы как `.tar.bz2`, а не `.tar.gz`. Формат сжатия отличается; сервер по-прежнему собирается из исходников.
+
+Скачать архив непосредственно на `master1`:
 
 ```bash
 cd /usr/local/src
-sudo curl -fLO https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz
+sudo curl --ipv4 --fail --location --retry 3 --continue-at - \
+    --output postgresql-18_18.6.orig.tar.bz2 \
+    https://mirror.yandex.ru/mirrors/postgresql/pool/main/p/postgresql-18/postgresql-18_18.6.orig.tar.bz2
 ```
 
 Если загрузка внутри ВМ недоступна или идёт слишком медленно, использовать FileZilla:
 
-1. На Windows скачать [архив PostgreSQL 18.6](https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz) через браузер.
+1. На Windows скачать [исходники PostgreSQL 18.6 с Яндекса](https://mirror.yandex.ru/mirrors/postgresql/pool/main/p/postgresql-18/postgresql-18_18.6.orig.tar.bz2) через браузер.
 2. Открыть SFTP-подключение `root` в FileZilla с параметрами из шага 7.
-3. В левой панели FileZilla найти скачанный `postgresql-18.6.tar.gz`, в правой открыть `/usr/local/src`. Перетащить архив в правую панель и дождаться завершения передачи.
+3. В левой панели найти скачанный `postgresql-18_18.6.orig.tar.bz2`, в правой открыть `/usr/local/src`. Перетащить архив и дождаться завершения передачи.
 
-После получения архива любым из двух способов распаковать его в `/usr/local/src`:
+После успешной загрузки любым из двух способов распаковать архив:
 
 ```bash
 cd /usr/local/src
-sudo tar -xzf postgresql-18.6.tar.gz
+sudo tar -xf postgresql-18_18.6.orig.tar.bz2
 sudo chown -R admin:admin /usr/local/src/postgresql-18.6
 cd /usr/local/src/postgresql-18.6
 ```
+
+Запасной источник — [официальный `postgresql-18.6.tar.gz`](https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz). Его также можно скачать на Windows и вручную передать через FileZilla прямо в `/usr/local/src`. Для этого архива выполнить `sudo tar -xf postgresql-18.6.tar.gz`, затем те же команды `chown` и `cd`. GNU tar определяет сжатие автоматически; для `.tar.bz2` нужен установленный пакет `bzip2`.
 
 Исходники остаются в `/usr/local/src/postgresql-18.6` для последующей установки модулей.
 
@@ -1036,7 +1059,7 @@ sudo -u postgres tail -n 30 /data/postgresql/18/main/log/postgresql-$(date +%F).
 
 ## Что выполняется вручную, а что делает Ansible
 
-Автоматизация находится в публичном репозитории **[postgresql-ansible-lab](https://github.com/tsenturion/postgresql-ansible-lab)**. В репозитории уже расположен `postgresql-18.6.tar.gz`: отдельное скачивание исходников PostgreSQL не требуется.
+Автоматизация находится в публичном репозитории **[postgresql-ansible-lab](https://github.com/tsenturion/postgresql-ansible-lab)**. Архив не хранится в Git: плейбук скачивает исходники PostgreSQL 18.6 с зеркала Яндекса в формате `.tar.bz2`.
 
 Рабочий процесс:
 
@@ -1134,19 +1157,21 @@ sudo hostnamectl set-hostname master1
 
 Это необязательный ручной шаг: Ansible сам устанавливает имя из параметра `node_hostname` и обновляет `/etc/hosts`.
 
+Архив PostgreSQL удалён также из истории Git. Если репозиторий был склонирован до этого изменения и `git pull --ff-only` больше не работает, клонировать актуальную версию в новый каталог и перенести в неё свой `local.yml`. Установленный PostgreSQL и данные кластера сохраняются.
+
 ## А3. Минимальная подготовка и клонирование репозитория
 
 В консоли Ubuntu выполнить:
 
 ```bash
 sudo apt update
-sudo apt install -y git ansible-core
+sudo apt install -y --no-install-recommends git ansible-core
 git clone https://github.com/tsenturion/postgresql-ansible-lab.git
 cd postgresql-ansible-lab
 cp local.example.yml local.yml
 ```
 
-При запросе sudo вводить пароль `ubuntu`. Весь репозиторий, включая архив PostgreSQL, будет склонирован в `~/postgresql-ansible-lab`.
+При запросе sudo вводить пароль `ubuntu`. Файлы автоматизации будут склонированы в `~/postgresql-ansible-lab`. Исходники PostgreSQL скачиваются отдельно при выполнении плейбука.
 
 Проверить имена интерфейсов:
 
@@ -1230,6 +1255,24 @@ postgres_allowed_subnet: 192.168.0.0/24
 
 Эти значения предназначены для учебной ВМ в локальной сети. При необходимости заменить `admin_password`, `root_password` и `postgres_password` в `local.yml` до запуска.
 
+### Источник архива для Ansible
+
+По умолчанию `settings.yml` содержит:
+
+```yaml
+postgres_source_url: https://mirror.yandex.ru/mirrors/postgresql/pool/main/p/postgresql-18/postgresql-18_18.6.orig.tar.bz2
+postgres_archive: /usr/local/src/postgresql-18_18.6.orig.tar.bz2
+```
+
+Чтобы использовать официальный `.tar.gz`, добавить в `local.yml` оба параметра:
+
+```yaml
+postgres_source_url: https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz
+postgres_archive: /usr/local/src/postgresql-18.6.tar.gz
+```
+
+При ручной передаче файл должен лежать по пути `postgres_archive`. `postgres_source` остаётся `/usr/local/src/postgresql-18.6` при обоих форматах.
+
 ## А5. Запуск .sh и Ansible
 
 Из каталога репозитория выполнить:
@@ -1250,7 +1293,7 @@ bash bootstrap.sh
 
 Плейбук устанавливает все компоненты, указанные в ручном варианте: библиотеки сборки, `--with-python`, `openpyxl`, `reportlab`, сервер, contrib и PL/Python. Для этого используются `make world-bin` и `make install-world-bin`; повторно отдельно собирать `pageinspect`, `pg_buffercache`, `pg_stat_statements` и `dblink` не нужно. [Описание сборки PostgreSQL](https://www.postgresql.org/docs/18/install-make.html).
 
-Архив из Git копируется в `/usr/local/src/postgresql-18.6.tar.gz`, исходники распаковываются в `/usr/local/src/postgresql-18.6`. После установки файлов плейбук создаёт в базе `postgres` расширения:
+Архив скачивается с [зеркала Яндекса](https://mirror.yandex.ru/mirrors/postgresql/pool/main/p/postgresql-18/postgresql-18_18.6.orig.tar.bz2) в `/usr/local/src/postgresql-18_18.6.orig.tar.bz2`, исходники распаковываются в `/usr/local/src/postgresql-18.6`. Существующий архив используется повторно, незавершённая загрузка `.part` возобновляется. После установки файлов плейбук создаёт в базе `postgres` расширения:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS pageinspect;
@@ -1328,7 +1371,7 @@ ssh-keygen -R "[localhost]:2222"
 
 Нажать **Connect** и при первом подключении принять ключ своей новой ВМ. Для этого входа дополнительная настройка ключа в FileZilla не требуется: используется пароль root.
 
-Для Ansible архив уже включён в репозиторий. Если понадобится вручную заменить или передать `.tar.gz`, слева открыть Downloads на Windows, справа — `/usr/local/src` на ноде и перетащить файл. Root может записывать в этот каталог напрямую.
+Для Ansible архив скачивается с Яндекса. При медленной загрузке на ноде скачать `postgresql-18_18.6.orig.tar.bz2` на Windows, слева в FileZilla открыть Downloads, справа — `/usr/local/src` и перетащить файл до запуска плейбука. Root может записывать в этот каталог напрямую. Если готовый файл уже существует, Ansible не скачивает его повторно. В репозитории есть `download-postgresql.ps1` для загрузки на Windows. Для официального `.tar.gz` переопределить `postgres_source_url` и `postgres_archive` в `local.yml`, как показано в разделе «Источник архива для Ansible».
 
 ### DBeaver на Windows
 
