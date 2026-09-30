@@ -16,6 +16,7 @@
 - объяснить различия между этапами `apt`, `configure`, `make`, `make install` и `initdb`;
 - собрать PostgreSQL 18.6 с дополнительными возможностями;
 - создать кластер базы данных и службу `systemd`;
+- подключиться к базе `postgres` из DBeaver на Windows;
 - проверить работу сервера и изучить его журналы.
 
 Работа выполняется только на одной виртуальной машине — `master1`.
@@ -38,6 +39,7 @@ Docker для сборки PostgreSQL из исходного кода не ну
 - [Visual Studio Code](https://code.visualstudio.com/download);
 - [Oracle VirtualBox](https://www.oracle.com/virtualization/technologies/vm/downloads/virtualbox-downloads.html);
 - [Ubuntu Server](https://ubuntu.com/download/server);
+- [DBeaver Community](https://dbeaver.io/download/);
 - [установка PostgreSQL 18 из исходного кода](https://www.postgresql.org/docs/18/installation.html);
 - [исходный код PostgreSQL 18.6](https://www.postgresql.org/ftp/source/v18.6/).
 
@@ -119,6 +121,10 @@ ms-vscode-remote.remote-ssh
 Установить актуальный Oracle VirtualBox. Extension Pack для этой работы не требуется.
 
 Если VirtualBox предлагает установить сетевые драйверы, подтвердить установку. Кратковременный разрыв сетевого соединения в этот момент является нормальным.
+
+### 1.4. Установка DBeaver
+
+Скачать DBeaver Community для Windows с официального сайта и установить его. Подключение к PostgreSQL настраивается после запуска сервера, в шаге 16.
 
 ## Шаг 2. Создание виртуальной машины `master1`
 
@@ -356,24 +362,104 @@ ssh-keygen -R "[127.0.0.1]:2222"
 ssh-keygen -R "192.168.0.33"
 ```
 
-## Шаг 7. Настройка входа по отдельному SSH-ключу
+## Шаг 7. Настройка входа по SSH для `admin` и `root`
 
-В PowerShell создать отдельный ключ для `master1`:
+В PowerShell проверить наличие стандартного открытого ключа:
 
 ```powershell
-ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\id_ed25519-master1" -C "master1-admin"
+Test-Path "$env:USERPROFILE\.ssh\id_ed25519.pub"
 ```
 
-Передать открытый ключ через стабильное NAT-подключение:
+Если результат `False`, создать ключ:
 
 ```powershell
-Get-Content "$env:USERPROFILE\.ssh\id_ed25519-master1.pub" | ssh -p 2222 admin@127.0.0.1 "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"
+ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\id_ed25519" -C "master1"
 ```
 
-Проверить вход по ключу:
+При создании ключа можно оставить парольную фразу пустой, если вход должен выполняться без дополнительных запросов. Файл `id_ed25519` — закрытый ключ; его не передают на сервер.
+
+Передать открытый ключ пользователю `admin` через NAT-подключение:
 
 ```powershell
-ssh -i "$env:USERPROFILE\.ssh\id_ed25519-master1" admin@127.0.0.1 -p 2222
+Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh -p 2222 admin@127.0.0.1 "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"
+```
+
+Проверить вход без указания пути к ключу: SSH сам использует стандартный `id_ed25519`.
+
+```powershell
+ssh admin@127.0.0.1 -p 2222
+```
+
+В SSH-сеансе `admin` открыть отдельное правило `sudo`:
+
+```bash
+sudo visudo -f /etc/sudoers.d/90-admin-nopasswd
+```
+
+Добавить строку:
+
+```text
+admin ALL=(ALL) NOPASSWD: ALL
+```
+
+Проверить, что `sudo` больше не запрашивает пароль:
+
+```bash
+sudo -n true
+```
+
+Настроить вход `root` по тому же открытому ключу. Задать пароль учётной записи `root`, чтобы разблокировать её и сохранить возможность входа без ключа:
+
+```bash
+sudo passwd root
+sudo install -d -o root -g root -m 700 /root/.ssh
+sudo nano /root/.ssh/authorized_keys
+```
+
+`sudo passwd root` задаёт пароль и разблокирует учётную запись; отдельная команда `passwd -u root` после этого не нужна.
+
+В PowerShell показать открытый ключ:
+
+```powershell
+Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
+```
+
+Скопировать полученную строку целиком в `/root/.ssh/authorized_keys`, сохранить файл и на ВМ выполнить:
+
+```bash
+sudo chown root:root /root/.ssh/authorized_keys
+sudo chmod 600 /root/.ssh/authorized_keys
+sudo nano /etc/ssh/sshd_config
+```
+
+Убедиться, что в конфигурации разрешены вход `root` и аутентификация по паролю:
+
+```text
+PermitRootLogin yes
+PubkeyAuthentication yes
+PasswordAuthentication yes
+```
+
+В обычной работе SSH использует открытый ключ из `authorized_keys` и не спрашивает пароль учётной записи. Без ключа войти тоже можно, но тогда потребуется пароль `root`: вход одновременно без ключа и без пароля не настроен. Проверить конфигурацию и перезапустить SSH:
+
+```bash
+sudo /usr/sbin/sshd -t
+sudo systemctl restart ssh
+sudo /usr/sbin/sshd -T | grep '^permitrootlogin '
+sudo /usr/sbin/sshd -T | grep '^pubkeyauthentication '
+sudo /usr/sbin/sshd -T | grep '^passwordauthentication '
+```
+
+Ожидаемые значения — `permitrootlogin yes`, `pubkeyauthentication yes` и `passwordauthentication yes`. В PowerShell проверить вход `root` через NAT без указания ключа и без запроса пароля учётной записи:
+
+```powershell
+ssh root@127.0.0.1 -p 2222
+```
+
+Отдельно проверить запасной вход без ключа: следующая команда должна запросить пароль `root`.
+
+```powershell
+ssh -o PubkeyAuthentication=no root@127.0.0.1 -p 2222
 ```
 
 Открыть локальный файл `%USERPROFILE%\.ssh\config` и добавить:
@@ -383,44 +469,46 @@ Host master1
     HostName 192.168.0.33
     User admin
     Port 22
-    IdentityFile ~/.ssh/id_ed25519-master1
-    IdentitiesOnly yes
     ServerAliveInterval 60
     ServerAliveCountMax 3
 
-Host master1-nat
+Host master1-admin
     HostName 127.0.0.1
     User admin
     Port 2222
-    IdentityFile ~/.ssh/id_ed25519-master1
-    IdentitiesOnly yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+Host master1-root
+    HostName 127.0.0.1
+    User root
+    Port 2222
     ServerAliveInterval 60
     ServerAliveCountMax 3
 ```
 
-Проверить оба псевдонима:
+`localhost` вместо `127.0.0.1` также подходит, если проброс VirtualBox доступен по этому имени. Проверить три подключения:
 
 ```powershell
 ssh master1
-ssh master1-nat
+ssh master1-admin
+ssh master1-root
 ```
 
-В VS Code выполнить **Remote-SSH: Connect to Host...** и выбрать `master1`. Если мост недоступен, использовать `master1-nat`.
+В VS Code выполнить **Remote-SSH: Connect to Host...** и выбрать `master1`. Если мост недоступен, использовать `master1-admin`.
 
-### Дополнительно: передача файлов через FileZilla
+### Передача файлов через FileZilla от `root`
 
-FileZilla необязательна: VS Code Remote SSH уже умеет работать с файлами ВМ. Если требуется графическая передача файлов, создать в FileZilla подключение с протоколом **SFTP — SSH File Transfer Protocol**:
+Для прямой записи в `/usr/local/src` создать в FileZilla подключение с протоколом **SFTP — SSH File Transfer Protocol**:
 
 ```text
 Host: 127.0.0.1
 Port: 2222
-User: admin
-Key file: C:\Users\<имя_пользователя>\.ssh\id_ed25519-master1
+User: root
+Logon type: Ask for password
 ```
 
-Для подключения через мост можно использовать адрес `192.168.0.33` и порт `22`.
-
-Прямой вход по SSH под `root` и правило `admin ALL=(ALL) NOPASSWD: ALL` в этой работе не настраиваются. Для административных команд используется `sudo` с паролем пользователя `admin`.
+При подключении ввести пароль учётной записи `root`, заданный командой `sudo passwd root`. Ключ в `/root/.ssh/authorized_keys` нужен для входа через `ssh master1-root` без пароля и не указывается в профиле FileZilla. Пользователь `root` может записывать в `/usr/local/src` без промежуточной передачи в `/home/admin`. Порядок передачи архива приведён в шаге 9.
 
 После успешной настройки рекомендуется выключить ВМ и создать снимок VirtualBox с именем `base-network-ssh`.
 
@@ -441,11 +529,16 @@ uname -a
 ip -br address
 ```
 
-Обновить пакеты:
+Обновить список доступных пакетов:
 
 ```bash
 sudo apt update
-sudo apt full-upgrade -y
+```
+
+Полное обновление Ubuntu — отдельный необязательный этап подготовки. Если оно требуется, выполнить:
+
+```bash
+sudo apt full-upgrade
 ```
 
 Если после обновления установлен новый kernel, перезагрузить ВМ и подключиться снова:
@@ -517,22 +610,39 @@ python3 --version
 
 Установка библиотек сама по себе не добавляет эти возможности в уже собранный PostgreSQL. Их наличие будет проверено на следующем этапе.
 
+Для следующих практик с созданием Excel- и PDF-файлов из PL/Python также установить библиотеки для системного Python:
+
+```bash
+sudo apt install -y python3-openpyxl python3-reportlab
+```
+
+Это Python-библиотеки, а не расширения PostgreSQL. Их устанавливают в окружение Python, используемое сервером.
+
 ## Шаг 9. Получение исходного кода PostgreSQL 18.6
 
-Создать постоянный каталог исходников:
+Основной способ — скачать архив непосредственно на `master1`:
 
 ```bash
-sudo install -d -o admin -g admin /usr/local/src/postgresql
-cd /usr/local/src/postgresql
+cd /usr/local/src
+sudo curl -fLO https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz
 ```
 
-Скачать и распаковать официальный архив:
+Если загрузка внутри ВМ недоступна или идёт слишком медленно, использовать FileZilla:
+
+1. На Windows скачать [архив PostgreSQL 18.6](https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz) через браузер.
+2. Открыть SFTP-подключение `root` в FileZilla с параметрами из шага 7.
+3. В левой панели FileZilla найти скачанный `postgresql-18.6.tar.gz`, в правой открыть `/usr/local/src`. Перетащить архив в правую панель и дождаться завершения передачи.
+
+После получения архива любым из двух способов распаковать его в `/usr/local/src`:
 
 ```bash
-curl -fLO https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.gz
-tar -xzf postgresql-18.6.tar.gz
-cd postgresql-18.6
+cd /usr/local/src
+sudo tar -xzf postgresql-18.6.tar.gz
+sudo chown -R admin:admin /usr/local/src/postgresql-18.6
+cd /usr/local/src/postgresql-18.6
 ```
+
+Исходники остаются в `/usr/local/src/postgresql-18.6` для последующей установки модулей.
 
 Проверить содержимое:
 
@@ -568,7 +678,7 @@ ls
     --with-zstd
 ```
 
-В PostgreSQL 18 ICU и zlib включены по умолчанию, поэтому отдельных параметров `--with-icu` и `--with-zlib` нет. Пакеты `libicu-dev` и `zlib1g-dev` всё равно должны быть установлены.
+В PostgreSQL 18 ICU и zlib включены по умолчанию, поэтому явно задавать `--with-icu` и `--with-zlib` не требуется. Пакеты `libicu-dev` и `zlib1g-dev` всё равно должны быть установлены.
 
 Проверить код завершения:
 
@@ -611,12 +721,14 @@ echo $?
 sudo make install-world-bin
 ```
 
+Цели `world-bin` и `install-world-bin` уже включают модули `contrib`. Отдельная сборка `pageinspect`, `pg_buffercache`, `pg_stat_statements` и `dblink` нужна только при их отсутствии после установки. `plpython3u` понадобится в следующих работах курса; он находится в `src/pl/plpython`, а не в `contrib`, включён параметром `--with-python` и устанавливается вместе с сервером.
+
 Проверить установку:
 
 ```bash
 /opt/postgresql/bin/postgres --version
 /opt/postgresql/bin/psql --version
-ls -la /opt/postgresql
+ls /opt/postgresql/share/extension/{pageinspect,pg_buffercache,pg_stat_statements,dblink,plpython3u}.control
 ```
 
 Ожидаемая версия:
@@ -625,10 +737,10 @@ ls -la /opt/postgresql
 postgres (PostgreSQL) 18.6
 ```
 
-### Что сделали `make` и `make install`
+### Что сделали сборка и установка
 
-- `make` скомпилировал исходный код с возможностями, обнаруженными `configure`;
-- `make install-world-bin` скопировал сервер, клиентские программы, библиотеки и модули `contrib` в `/opt/postgresql`;
+- `make world-bin` скомпилировал сервер, выбранный при `configure` язык PL/Python и двоичные модули `contrib`;
+- `make install-world-bin` установил их в `/opt/postgresql`;
 - кластер базы данных на этих этапах ещё не создан.
 
 ## Шаг 12. Создание системного пользователя и каталога данных
@@ -699,6 +811,8 @@ sudo -u postgres ls -la /data/postgresql/18/main
 
 `initdb` создаёт новый кластер базы данных. Этот шаг не является частью компиляции и не должен повторяться при обычной пересборке бинарных файлов.
 
+Параметр `--auth-local=peer` настраивает вход через локальный Unix-сокет по имени пользователя Linux. К существующей базе `postgres` можно подключиться под одноимённой ролью PostgreSQL без пароля командой `sudo -u postgres /opt/postgresql/bin/psql -d postgres`. Здесь `sudo` запускает только процесс `psql` от имени системного пользователя `postgres`; для `admin` с правилом `NOPASSWD` из шага 7 пароль Ubuntu также не запрашивается. Подключение с `-h 127.0.0.1` использует TCP и проверяется отдельно по паролю PostgreSQL.
+
 ## Шаг 14. Настройка PostgreSQL
 
 Открыть основной файл конфигурации:
@@ -707,11 +821,12 @@ sudo -u postgres ls -la /data/postgresql/18/main
 sudo -u postgres nano /data/postgresql/18/main/postgresql.conf
 ```
 
-Добавить в конец файла:
+Добавить параметры в конец файла. Если `shared_preload_libraries` уже задан, дополнить существующий список значением `pg_stat_statements`; если оно там уже есть, повторно не добавлять:
 
 ```conf
 listen_addresses = '*'
 password_encryption = 'scram-sha-256'
+shared_preload_libraries = 'pg_stat_statements'
 
 logging_collector = on
 log_directory = 'log'
@@ -736,6 +851,8 @@ host    all    all    192.168.0.0/24    scram-sha-256
 Если фактическая сеть отличается, заменить адрес сети и префикс.
 
 Значение `listen_addresses = '*'` позволяет службе запускаться даже при временно недоступном мосте. Фактический удалённый доступ ограничивают правила `pg_hba.conf` и, при включённом UFW, правило межсетевого экрана для локальной подсети.
+
+`pg_stat_statements` требует загрузки при старте сервера. При первоначальном запуске это обеспечит указанная настройка. Если её добавили уже работающему серверу, выполнить `sudo systemctl restart postgresql-18` перед использованием расширения.
 
 Создать каталог журналов и настроить очистку файлов старше 30 дней:
 
@@ -810,7 +927,7 @@ sudo ufw status
 
 Не открывать PostgreSQL для всех адресов правилом `sudo ufw allow 5432`.
 
-## Шаг 16. Создание роли, базы и итоговая проверка
+## Шаг 16. Установка расширений в базу `postgres` и итоговая проверка
 
 Подключиться локально под системным пользователем `postgres`:
 
@@ -825,19 +942,33 @@ SELECT version();
 SHOW data_directory;
 SHOW server_encoding;
 SHOW lc_collate;
+SELECT datlocprovider, datlocale
+FROM pg_database WHERE datname = current_database();
+SHOW shared_preload_libraries;
 
-CREATE ROLE admin LOGIN;
-\password admin
-CREATE DATABASE lab OWNER admin;
+CREATE EXTENSION pageinspect;
+CREATE EXTENSION pg_buffercache;
+CREATE EXTENSION pg_stat_statements;
+CREATE EXTENSION dblink;
+CREATE EXTENSION plpython3u;
+SELECT count(*) FROM pg_stat_statements;
+DO $$
+from openpyxl import Workbook
+from reportlab.pdfgen import canvas
+$$ LANGUAGE plpython3u;
+\password postgres
+\dx
 \q
 ```
 
-Команда `\password admin` запросит пароль и не сохранит его в истории оболочки.
+База `postgres` и роль `postgres` уже созданы командой `initdb`. Для ICU ожидаются `datlocprovider = i` и `datlocale = ru-RU`; значение `lc_collate` может отличаться, поскольку показывает локаль libc. Запрос к `pg_stat_statements` проверяет, что расширение загружено при старте сервера, а блок `DO` — что `openpyxl` и `reportlab` доступны внутри PL/Python.
 
-Проверить подключение по TCP внутри ВМ:
+Локальная команда `sudo -u postgres /opt/postgresql/bin/psql -d postgres` выше подключается через Unix-сокет без пароля PostgreSQL: правило `peer` сопоставляет системного пользователя `postgres` с одноимённой ролью. Команда `\password postgres` задаёт пароль только для TCP-подключений и не сохраняет его в истории оболочки. В этой учебной конфигурации использовать пароль `admin`.
+
+Отдельно проверить подключение по TCP внутри ВМ:
 
 ```bash
-psql -h 127.0.0.1 -U admin -d lab -W
+psql -h 127.0.0.1 -U postgres -d postgres -W
 ```
 
 Внутри `psql` выполнить:
@@ -846,6 +977,42 @@ psql -h 127.0.0.1 -U admin -d lab -W
 SELECT current_user, current_database(), inet_server_addr(), inet_server_port();
 \q
 ```
+
+### Подключение через DBeaver с Windows
+
+Все действия в этом разделе выполняются в DBeaver на хосте Windows. Выбрать **Database → New Database Connection → PostgreSQL**. Для прямого подключения через сетевой мост указать:
+
+| Параметр | Значение |
+| --- | --- |
+| Host | `192.168.0.33` — адрес моста `master1` в примере |
+| Port | `5432` |
+| Database | `postgres` |
+| Username | `postgres` |
+| Password | пароль, заданный командой `\password postgres` |
+
+В поле **Host** указать фактический адрес сетевого моста виртуальной машины; `192.168.0.33` — только пример из этой инструкции. Адрес `127.0.0.1` без SSH-туннеля здесь не подходит: он указывает на сам Windows-хост.
+
+Если на ВМ настроен UFW, правило для локальной сети из шага 15 должно разрешать порт `5432`. Нажать **Test Connection**, затем **Finish**. Если DBeaver предложит загрузить драйвер PostgreSQL, подтвердить загрузку.
+
+Если сетевой мост недоступен, использовать существующее SSH-подключение через NAT. В основных параметрах соединения DBeaver указать `Host: localhost`, `Port: 5432`, базу `postgres`, пользователя `postgres` и тот же пароль. В настройках **SSH** добавить туннель:
+
+| Параметр SSH | Значение |
+| --- | --- |
+| Host/IP | `127.0.0.1` |
+| Port | `2222` |
+| User name | `admin` — пользователь Ubuntu |
+| Authentication | `Public Key` |
+| Private key | `C:\Users\<имя_пользователя>\.ssh\id_ed25519` |
+
+Проверить туннель кнопкой **Test tunnel configuration**, затем нажать **Test Connection** и **Finish**. Для туннеля открывать порт `5432` в UFW не требуется.
+
+Открыть SQL-редактор созданного соединения и выполнить:
+
+```sql
+SELECT current_user, current_database();
+```
+
+Ожидаются значения `postgres` и `postgres`.
 
 Проверить управление службой:
 
@@ -875,13 +1042,15 @@ apt: компилятор и системные библиотеки
         ↓
 configure: проверка окружения и формирование Makefile
         ↓
-make: компиляция исходного кода
+make world-bin: компиляция сервера и модулей contrib
         ↓
-make install: установка готовых файлов программы
+make install-world-bin: установка собранных файлов
         ↓
 initdb: создание кластера данных
         ↓
 конфигурация PostgreSQL и запуск через systemd
+        ↓
+CREATE EXTENSION в нужной базе
 ```
 
 `configure` не скачивает и не устанавливает OpenSSL, Python, ICU и другие компоненты. Он только проверяет, доступны ли их ранее установленные библиотеки, и подготавливает сборку.
@@ -893,11 +1062,16 @@ initdb: создание кластера данных
 Установить недостающий пакет, вернуться в каталог исходников и выполнить полную пересборку с прежними и новыми параметрами:
 
 ```bash
-cd /usr/local/src/postgresql/postgresql-18.6
+cd /usr/local/src/postgresql-18.6
 make distclean
 ./configure <все необходимые параметры>
 make -j"$(nproc)" world-bin
 sudo make install-world-bin
+```
+
+После установки перезапустить службу:
+
+```bash
 sudo systemctl restart postgresql-18
 ```
 
@@ -907,19 +1081,34 @@ sudo systemctl restart postgresql-18
 
 ## Требуется только расширение из `contrib`
 
-В этой работе выполнены `make world-bin` и `make install-world-bin`, поэтому двоичные модули `contrib` уже установлены. Нужное расширение активируется отдельно в конкретной базе, например:
+Если после сборки только сервера без `contrib` команда `CREATE EXTENSION` сообщает `extension "..." is not available`, проверить наличие файла управления расширением. Например, для `dblink`:
 
 ```bash
-sudo -u postgres psql -d lab
+ls /opt/postgresql/share/extension/dblink.control
+```
+
+Если файла нет, собрать и установить соответствующий модуль из `/usr/local/src/postgresql-18.6/contrib`:
+
+```bash
+cd /usr/local/src/postgresql-18.6/contrib/dblink
+make USE_PGXS=1 PG_CONFIG=/opt/postgresql/bin/pg_config
+sudo make USE_PGXS=1 PG_CONFIG=/opt/postgresql/bin/pg_config install
+```
+
+Для `pageinspect`, `pg_buffercache` и `pg_stat_statements` вместо `dblink` указать имя нужного каталога. Если файл уже есть, повторная сборка не требуется. Затем подключиться к нужной базе и зарегистрировать расширение, например:
+
+```bash
+sudo -u postgres /opt/postgresql/bin/psql -d postgres
 ```
 
 ```sql
 CREATE EXTENSION dblink;
-CREATE EXTENSION "uuid-ossp";
 \dx
 ```
 
 Установка файлов расширения и команда `CREATE EXTENSION` — разные этапы: первая помещает файлы в систему, вторая регистрирует расширение в выбранной базе.
+
+Для `pg_stat_statements` дополнительно нужна строка `shared_preload_libraries = 'pg_stat_statements'` в `postgresql.conf` и перезапуск уже работающего сервера. `plpython3u` устанавливается при сборке PostgreSQL с `--with-python`; это процедурный язык из `src/pl/plpython`, а не модуль `contrib`.
 
 # Чем эта схема отличается от установки через `apt`
 
@@ -939,7 +1128,7 @@ CREATE EXTENSION "uuid-ossp";
 
 # Диагностика типовых ошибок
 
-## Не работает `ssh master1-nat`
+## Не работает `ssh master1-admin` или `ssh master1-root`
 
 Проверить:
 
@@ -951,7 +1140,7 @@ CREATE EXTENSION "uuid-ossp";
 
 ## Не работает `ssh master1`
 
-Сначала проверить `ssh master1-nat`. Если NAT работает, проблема находится в мосте, статическом адресе или локальной сети.
+Сначала проверить `ssh master1-admin`. Если NAT работает, проблема находится в мосте, статическом адресе или локальной сети.
 
 На ВМ проверить:
 
@@ -1025,13 +1214,19 @@ sudo ss -lntp | grep ':5432'
 - [ ] На адаптере 1 настроены NAT и проброс `127.0.0.1:2222 → 22`.
 - [ ] На адаптере 2 настроен сетевой мост.
 - [ ] Netplan содержит NAT с DHCP и мост со статическим адресом без второго маршрута по умолчанию.
-- [ ] Работают подключения `ssh master1` и `ssh master1-nat`.
-- [ ] Вход выполняется по отдельному ключу `id_ed25519-master1`.
+- [ ] Работают подключения `ssh master1`, `ssh master1-admin` и `ssh master1-root`.
+- [ ] Открытый ключ `id_ed25519.pub` находится в `authorized_keys` пользователей Ubuntu `admin` и `root`; стандартный закрытый ключ `id_ed25519` остаётся на Windows.
+- [ ] Правило `admin ALL=(ALL) NOPASSWD: ALL` действует; SSH использует ключ без запроса пароля при обычном входе.
+- [ ] FileZilla подключается по SFTP от `root` с паролем и может передать архив в `/usr/local/src`.
 - [ ] PostgreSQL 18.6 собран с указанными параметрами.
+- [ ] Исходники находятся в `/usr/local/src/postgresql-18.6`.
 - [ ] Программа установлена в `/opt/postgresql`.
+- [ ] Установлены файлы `pageinspect`, `pg_buffercache`, `pg_stat_statements`, `dblink` и `plpython3u`.
 - [ ] Кластер находится в `/data/postgresql/18/main`.
 - [ ] Служба `postgresql-18` активна и включена в автозапуск.
-- [ ] Созданы роль `admin` и база `lab`.
+- [ ] В базе `postgres` созданы все пять расширений; `pg_stat_statements` загружен через `shared_preload_libraries`.
+- [ ] Команда `sudo -u postgres /opt/postgresql/bin/psql -d postgres` подключается через Unix-сокет без пароля PostgreSQL.
+- [ ] DBeaver на Windows подключается к базе `postgres` через мост или SSH-туннель.
 - [ ] Журналы PostgreSQL создаются и очищаются не позднее чем через 30 дней.
 - [ ] `SELECT version();` показывает PostgreSQL 18.6.
 
