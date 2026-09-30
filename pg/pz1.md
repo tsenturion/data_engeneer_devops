@@ -23,25 +23,17 @@
 
 Docker для сборки PostgreSQL из исходного кода не нужен и в этой работе не устанавливается. Передача файлов выполняется через SSH/SFTP; отдельный FTP-сервер также не требуется.
 
-## Используемые версии
+## Используемое ПО и ссылки на скачивание
 
-На момент актуализации задания используются:
+Для работы используются следующие программы; ссылки ведут на официальные страницы скачивания:
 
-- Oracle VirtualBox;
-- Ubuntu Server;
-- PostgreSQL 18.6;
-- DBeaver;
-- PowerShell;
-- Visual Studio Code.
-
-Официальные страницы:
-
-- [Visual Studio Code](https://code.visualstudio.com/download);
 - [Oracle VirtualBox](https://www.oracle.com/virtualization/technologies/vm/downloads/virtualbox-downloads.html);
 - [Ubuntu Server](https://ubuntu.com/download/server);
+- [PostgreSQL 18.6 — исходный код](https://www.postgresql.org/ftp/source/v18.6/) ([инструкция по установке из исходного кода](https://www.postgresql.org/docs/18/installation.html));
 - [DBeaver Community](https://dbeaver.io/download/);
-- [установка PostgreSQL 18 из исходного кода](https://www.postgresql.org/docs/18/installation.html);
-- [исходный код PostgreSQL 18.6](https://www.postgresql.org/ftp/source/v18.6/).
+- [FileZilla Client](https://filezilla-project.org/download.php?type=client);
+- [PowerShell — установка и скачивание для Windows](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows);
+- [Visual Studio Code](https://code.visualstudio.com/download).
 
 ## Итоговая схема
 
