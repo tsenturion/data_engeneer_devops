@@ -41,7 +41,7 @@ Docker для сборки PostgreSQL из исходного кода не ну
 | ---------------------------- | ----------------------------------------------------------- |
 | Основная ОС                  | Windows 10 или Windows 11                                   |
 | Виртуальная машина           | `master1`                                                   |
-| Пользователь Ubuntu          | `admin`                                                     |
+| Пользователь Ubuntu          | `ubuntu`                                                    |
 | Сетевой адаптер 1            | NAT, адрес выдаётся по DHCP                                 |
 | Резервный SSH через NAT      | `127.0.0.1:2222` → `master1:22`                             |
 | Сетевой адаптер 2            | Сетевой мост, статический адрес в домашней или учебной сети |
@@ -148,14 +148,15 @@ ms-vscode-remote.remote-ssh
 
 ```text
 Hostname: master1
-Username: admin
+Username: ubuntu
+Password: ubuntu
 ```
 
 На этапе SSH Setup включить **Install OpenSSH server**. Импорт ключей из внешних сервисов не требуется. Дополнительные Featured Server Snaps не устанавливать.
 
 После завершения установки перезагрузить ВМ и извлечь ISO из виртуального привода.
 
-Войти в консоль под пользователем `admin` и проверить имя узла:
+Войти в консоль под пользователем `ubuntu` и проверить имя узла:
 
 ```bash
 hostnamectl
@@ -347,13 +348,13 @@ sudo ufw status
 В PowerShell на Windows выполнить:
 
 ```powershell
-ssh admin@127.0.0.1 -p 2222
+ssh ubuntu@127.0.0.1 -p 2222
 ```
 
 ### 6.2. Проверка подключения через мост
 
 ```powershell
-ssh admin@192.168.0.33
+ssh ubuntu@192.168.0.33
 ```
 
 При переустановке ВМ старая запись ключа узла может мешать подключению. Удалить только соответствующую запись:
@@ -363,7 +364,7 @@ ssh-keygen -R "[127.0.0.1]:2222"
 ssh-keygen -R "192.168.0.33"
 ```
 
-## Шаг 7. Настройка входа по SSH для `admin` и `root`
+## Шаг 7. Настройка входа по SSH для `ubuntu` и `root`
 
 В PowerShell проверить наличие стандартного открытого ключа:
 
@@ -379,28 +380,28 @@ ssh-keygen -t ed25519 -f "$env:USERPROFILE\.ssh\id_ed25519" -C "master1"
 
 При создании ключа можно оставить парольную фразу пустой, если вход должен выполняться без дополнительных запросов. Файл `id_ed25519` — закрытый ключ; его не передают на сервер.
 
-Передать открытый ключ пользователю `admin` через NAT-подключение:
+Передать открытый ключ пользователю `ubuntu` через NAT-подключение:
 
 ```powershell
-Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh -p 2222 admin@127.0.0.1 "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"
+Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh -p 2222 ubuntu@127.0.0.1 "umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"
 ```
 
 Проверить вход без указания пути к ключу: SSH сам использует стандартный `id_ed25519`.
 
 ```powershell
-ssh admin@127.0.0.1 -p 2222
+ssh ubuntu@127.0.0.1 -p 2222
 ```
 
-В SSH-сеансе `admin` открыть отдельное правило `sudo`:
+В SSH-сеансе `ubuntu` открыть отдельное правило `sudo`:
 
 ```bash
-sudo visudo -f /etc/sudoers.d/90-admin-nopasswd
+sudo visudo -f /etc/sudoers.d/90-lab-ubuntu
 ```
 
 Добавить строку:
 
 ```text
-admin ALL=(ALL) NOPASSWD: ALL
+ubuntu ALL=(ALL) NOPASSWD: ALL
 ```
 
 Проверить, что `sudo` больше не запрашивает пароль:
@@ -468,14 +469,14 @@ ssh -o PubkeyAuthentication=no root@127.0.0.1 -p 2222
 ```sshconfig
 Host master1
     HostName 192.168.0.33
-    User admin
+    User ubuntu
     Port 22
     ServerAliveInterval 60
     ServerAliveCountMax 3
 
-Host master1-admin
+Host master1-ubuntu
     HostName 127.0.0.1
-    User admin
+    User ubuntu
     Port 2222
     ServerAliveInterval 60
     ServerAliveCountMax 3
@@ -492,11 +493,11 @@ Host master1-root
 
 ```powershell
 ssh master1
-ssh master1-admin
+ssh master1-ubuntu
 ssh master1-root
 ```
 
-В VS Code выполнить **Remote-SSH: Connect to Host...** и выбрать `master1`. Если мост недоступен, использовать `master1-admin`.
+В VS Code выполнить **Remote-SSH: Connect to Host...** и выбрать `master1`. Если мост недоступен, использовать `master1-ubuntu`.
 
 ### Передача файлов через FileZilla от `root`
 
@@ -509,7 +510,7 @@ User: root
 Logon type: Ask for password
 ```
 
-При подключении ввести пароль учётной записи `root`, заданный командой `sudo passwd root`. Ключ в `/root/.ssh/authorized_keys` нужен для входа через `ssh master1-root` без пароля и не указывается в профиле FileZilla. Пользователь `root` может записывать в `/usr/local/src` без промежуточной передачи в `/home/admin`. Порядок передачи архива приведён в шаге 9.
+При подключении ввести пароль учётной записи `root`, заданный командой `sudo passwd root`. Ключ в `/root/.ssh/authorized_keys` нужен для входа через `ssh master1-root` без пароля и не указывается в профиле FileZilla. Пользователь `root` может записывать в `/usr/local/src` без промежуточной передачи в `/home/ubuntu`. Порядок передачи архива приведён в шаге 9.
 
 После успешной настройки рекомендуется выключить ВМ и создать снимок VirtualBox с именем `base-network-ssh`.
 
@@ -660,7 +661,7 @@ sudo curl --ipv4 --fail --location --retry 3 --continue-at - \
 ```bash
 cd /usr/local/src
 sudo tar -xf postgresql-18_18.6.orig.tar.bz2
-sudo chown -R admin:admin /usr/local/src/postgresql-18.6
+sudo chown -R ubuntu:ubuntu /usr/local/src/postgresql-18.6
 cd /usr/local/src/postgresql-18.6
 ```
 
@@ -835,7 +836,7 @@ sudo -u postgres ls -la /data/postgresql/18/main
 
 `initdb` создаёт новый кластер базы данных. Этот шаг не является частью компиляции и не должен повторяться при обычной пересборке бинарных файлов.
 
-Параметр `--auth-local=peer` настраивает вход через локальный Unix-сокет по имени пользователя Linux. К существующей базе `postgres` можно подключиться под одноимённой ролью PostgreSQL без пароля командой `sudo -u postgres /opt/postgresql/bin/psql -d postgres`. Здесь `sudo` запускает только процесс `psql` от имени системного пользователя `postgres`; для `admin` с правилом `NOPASSWD` из шага 7 пароль Ubuntu также не запрашивается. Подключение с `-h 127.0.0.1` использует TCP и проверяется отдельно по паролю PostgreSQL.
+Параметр `--auth-local=peer` настраивает вход через локальный Unix-сокет по имени пользователя Linux. К существующей базе `postgres` можно подключиться под одноимённой ролью PostgreSQL без пароля командой `sudo -u postgres /opt/postgresql/bin/psql -d postgres`. Здесь `sudo` запускает только процесс `psql` от имени системного пользователя `postgres`; для `ubuntu` с правилом `NOPASSWD` из шага 7 пароль Ubuntu также не запрашивается. Подключение с `-h 127.0.0.1` использует TCP и проверяется отдельно по паролю PostgreSQL.
 
 ## Шаг 14. Настройка PostgreSQL
 
@@ -1024,7 +1025,7 @@ SELECT current_user, current_database(), inet_server_addr(), inet_server_port();
 | --- | --- |
 | Host/IP | `127.0.0.1` |
 | Port | `2222` |
-| User name | `admin` — пользователь Ubuntu |
+| User name | `ubuntu` — пользователь Ubuntu |
 | Authentication | `Public Key` |
 | Private key | `C:\Users\<имя_пользователя>\.ssh\id_ed25519` |
 
@@ -1084,12 +1085,12 @@ Ansible работает **внутри клона**, на одной ноде, 
 | Установка Ubuntu и создание пользователя ubuntu | Имя ноды master1 и запись в `/etc/hosts` |
 | Полное клонирование ВМ с новыми MAC-адресами | Отдельный machine-id и серверные SSH-ключи клона |
 | Два адаптера VirtualBox и проброс порта | Netplan: NAT с DHCP, мост со статическим адресом |
-| Установка Git и Ansible | Пользователь Ubuntu admin, пароль root, sudo без пароля для admin |
+| Установка Git и Ansible | Пароль root, sudo без пароля для ubuntu |
 | Клонирование репозитория и заполнение local.yml | SSH-вход по ключу и паролю, authorized_keys |
 | Запуск bootstrap.sh | Зависимости, сборка сервера, contrib и PL/Python |
 | Перезагрузка после первого успешного запуска | Кластер, служба, пять расширений и проверка их работы |
 
-Пользователь `admin`, создаваемый плейбуком, относится к **Ubuntu**: он нужен для существующих SSH-алиасов и работы с sudo. Отдельная роль PostgreSQL `admin` и база `lab` не создаются. SQL-задания выполняются от роли `postgres` в базе `postgres`.
+Пользователь `ubuntu` создаётся при установке **Ubuntu**. Плейбук настраивает для него SSH и sudo без пароля. SQL-задания выполняются от роли `postgres` в базе `postgres`.
 
 ## А1. Создание базовой Ubuntu Server
 
@@ -1242,18 +1243,17 @@ postgres_allowed_subnet: 192.168.0.0/24
 
 После смены IP обновить `HostName` прямого подключения в `%USERPROFILE%\.ssh\config` и поле **Host** в DBeaver. Имена SSH-алиасов (`Host master1` и другие) можно оставить или переименовать — это локальные обозначения на Windows. Для подключения FileZilla и SSH через NAT адрес `127.0.0.1` и порт `2222` сохраняются, если правило проброса VirtualBox не менялось. Само изменение hostname не создаёт запись DNS для подключения по новому имени.
 
-`local.yml` игнорируется Git. Плейбук добавит указанный открытый ключ в `authorized_keys` пользователей Ubuntu `ubuntu`, `admin` и `root`, с правами `700` на `.ssh` и `600` на `authorized_keys`. Вход SSH с Windows сможет использовать стандартный закрытый ключ без ввода пароля учётной записи. Если закрытый ключ защищён парольной фразой, его нужно разблокировать через SSH-agent либо ввести эту фразу при подключении.
+`local.yml` игнорируется Git. Плейбук добавит указанный открытый ключ в `authorized_keys` пользователей Ubuntu `ubuntu` и `root`, с правами `700` на `.ssh` и `600` на `authorized_keys`. Вход SSH с Windows сможет использовать стандартный закрытый ключ без ввода пароля учётной записи. Если закрытый ключ защищён парольной фразой, его нужно разблокировать через SSH-agent либо ввести эту фразу при подключении.
 
 Учебные пароли по умолчанию:
 
 | Учётная запись | Пароль | Где используется |
 | --- | --- | --- |
-| Ubuntu `ubuntu` | `ubuntu` | Первичная консоль и sudo до настройки |
-| Ubuntu `admin` | `admin` | SSH по паролю, если ключ не используется |
+| Ubuntu `ubuntu` | `ubuntu` | Консоль, SSH по паролю и первый запуск sudo |
 | Ubuntu `root` | `root` | SSH/SFTP по паролю, в том числе FileZilla |
 | PostgreSQL `postgres` | `admin` | TCP-подключения к PostgreSQL и DBeaver |
 
-Эти значения предназначены для учебной ВМ в локальной сети. При необходимости заменить `admin_password`, `root_password` и `postgres_password` в `local.yml` до запуска.
+Эти значения предназначены для учебной ВМ в локальной сети. При необходимости заменить `root_password` и `postgres_password` в `local.yml` до запуска.
 
 ### Источник архива для Ansible
 
@@ -1322,14 +1322,14 @@ sudo reboot
 ```sshconfig
 Host master1
     HostName 192.168.0.33
-    User admin
+    User ubuntu
     Port 22
     ServerAliveInterval 60
     ServerAliveCountMax 3
 
-Host master1-admin
+Host master1-ubuntu
     HostName 127.0.0.1
-    User admin
+    User ubuntu
     Port 2222
 
 Host master1-root
@@ -1342,7 +1342,7 @@ Host master1-root
 
 ```powershell
 ssh master1
-ssh master1-admin
+ssh master1-ubuntu
 ssh master1-root
 ```
 
@@ -1391,7 +1391,7 @@ ssh-keygen -R "[localhost]:2222"
 
 ### Работа в psql на ноде
 
-После SSH-входа под root или admin:
+После SSH-входа под root или ubuntu:
 
 ```bash
 sudo -u postgres /opt/postgresql/bin/psql -d postgres
@@ -1527,7 +1527,7 @@ CREATE EXTENSION dblink;
 
 # Диагностика типовых ошибок
 
-## Не работает `ssh master1-admin` или `ssh master1-root`
+## Не работает `ssh master1-ubuntu` или `ssh master1-root`
 
 Проверить:
 
@@ -1539,7 +1539,7 @@ CREATE EXTENSION dblink;
 
 ## Не работает `ssh master1`
 
-Сначала проверить `ssh master1-admin`. Если NAT работает, проблема находится в мосте, статическом адресе или локальной сети.
+Сначала проверить `ssh master1-ubuntu`. Если NAT работает, проблема находится в мосте, статическом адресе или локальной сети.
 
 На ВМ проверить:
 
@@ -1613,9 +1613,9 @@ sudo ss -lntp | grep ':5432'
 - [ ] На адаптере 1 настроены NAT и проброс `127.0.0.1:2222 → 22`.
 - [ ] На адаптере 2 настроен сетевой мост.
 - [ ] Netplan содержит NAT с DHCP и мост со статическим адресом без второго маршрута по умолчанию.
-- [ ] Работают подключения `ssh master1`, `ssh master1-admin` и `ssh master1-root`.
-- [ ] Открытый ключ `id_ed25519.pub` находится в `authorized_keys` пользователей Ubuntu `admin` и `root`; стандартный закрытый ключ `id_ed25519` остаётся на Windows.
-- [ ] Правило `admin ALL=(ALL) NOPASSWD: ALL` действует; SSH использует ключ без запроса пароля при обычном входе.
+- [ ] Работают подключения `ssh master1`, `ssh master1-ubuntu` и `ssh master1-root`.
+- [ ] Открытый ключ `id_ed25519.pub` находится в `authorized_keys` пользователей Ubuntu `ubuntu` и `root`; стандартный закрытый ключ `id_ed25519` остаётся на Windows.
+- [ ] Правило `ubuntu ALL=(ALL) NOPASSWD: ALL` действует; SSH использует ключ без запроса пароля при обычном входе.
 - [ ] FileZilla подключается по SFTP от `root` с паролем и может передать архив в `/usr/local/src`.
 - [ ] PostgreSQL 18.6 собран с указанными параметрами.
 - [ ] Исходники находятся в `/usr/local/src/postgresql-18.6`.
