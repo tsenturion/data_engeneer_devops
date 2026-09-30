@@ -60,7 +60,16 @@ NAT предоставляет виртуальной машине доступ 
 
 В этой схеме маршрут по умолчанию и DNS получает только NAT-интерфейс. Для интерфейса моста задаётся лишь статический адрес локальной сети. Это предотвращает появление двух конкурирующих маршрутов по умолчанию.
 
-# Выполнение работы
+## Способы выполнения
+
+Выбрать один из двух способов развёртывания одной и той же ноды:
+
+- **Вариант 1 — ручная установка:** выполнить шаги 1–16 ниже.
+- **[Вариант 2 — установка через Ansible](#ansible-install):** создать базовую Ubuntu с пользователем `ubuntu`, вручную клонировать ВМ и после минимальной подготовки запустить автоматизацию из публичного репозитория.
+
+Оба варианта устанавливают PostgreSQL из исходников в `/opt/postgresql` и используют стандартные роль и базу `postgres`. Выполнять оба способа последовательно на одной ноде не требуется.
+
+# Вариант 1. Ручная установка
 
 ## Шаг 1. Подготовка Windows
 
@@ -1021,6 +1030,336 @@ sudo -u postgres ls -lh /data/postgresql/18/main/log
 sudo -u postgres tail -n 30 /data/postgresql/18/main/log/postgresql-$(date +%F).log
 ```
 
+<a id="ansible-install"></a>
+
+# Вариант 2. Установка через Ansible
+
+## Что выполняется вручную, а что делает Ansible
+
+Автоматизация находится в публичном репозитории **[postgresql-ansible-lab](https://github.com/tsenturion/postgresql-ansible-lab)**. В репозитории уже расположен `postgresql-18.6.tar.gz`: отдельное скачивание исходников PostgreSQL не требуется.
+
+Рабочий процесс:
+
+```text
+Установить базовую Ubuntu: ubuntu / ubuntu
+                  ↓
+Выключить базовую ВМ и вручную сделать полный клон master1
+                  ↓
+Настроить в VirtualBox NAT, проброс SSH и сетевой мост
+                  ↓
+Войти через консоль, установить Git и Ansible, клонировать репозиторий
+                  ↓
+Указать адрес ноды и открытый SSH-ключ Windows в local.yml
+                  ↓
+bash bootstrap.sh → локальный запуск Ansible → готовая master1
+```
+
+Ansible работает **внутри клона**, на одной ноде, с `ansible_connection: local`. Для первого запуска SSH, root-доступ и статический IP внутри Ubuntu заранее настраивать не нужно: достаточно консоли VirtualBox, sudo у пользователя `ubuntu` и Интернета через NAT.
+
+| Вручную | Через Ansible |
+| --- | --- |
+| Установка Ubuntu и создание пользователя ubuntu | Имя ноды master1 и запись в `/etc/hosts` |
+| Полное клонирование ВМ с новыми MAC-адресами | Отдельный machine-id и серверные SSH-ключи клона |
+| Два адаптера VirtualBox и проброс порта | Netplan: NAT с DHCP, мост со статическим адресом |
+| Установка Git и Ansible | Пользователь Ubuntu admin, пароль root, sudo без пароля для admin |
+| Клонирование репозитория и заполнение local.yml | SSH-вход по ключу и паролю, authorized_keys |
+| Запуск bootstrap.sh | Зависимости, сборка сервера, contrib и PL/Python |
+| Перезагрузка после первого успешного запуска | Кластер, служба, пять расширений и проверка их работы |
+
+Пользователь `admin`, создаваемый плейбуком, относится к **Ubuntu**: он нужен для существующих SSH-алиасов и работы с sudo. Отдельная роль PostgreSQL `admin` и база `lab` не создаются. SQL-задания выполняются от роли `postgres` в базе `postgres`.
+
+## А1. Создание базовой Ubuntu Server
+
+В VirtualBox создать базовую ВМ с именем, например, `ubuntu-26-04-1`:
+
+- Ubuntu Server 26.04.1 LTS, ISO с [официальной страницы Ubuntu Server](https://ubuntu.com/download/server);
+- оперативная память от 4 ГБ, от 2 процессоров;
+- виртуальный диск от 30 ГБ;
+- сетевой адаптер 1 — **NAT**, включён **Cable Connected**.
+
+Установить Ubuntu обычным способом. На экране создания пользователя указать:
+
+| Поле | Значение |
+| --- | --- |
+| Имя пользователя | `ubuntu` |
+| Пароль | `ubuntu` |
+| Подтверждение пароля | `ubuntu` |
+| Имя сервера | например, `ubuntu-base` |
+
+Пользователь, созданный установщиком Ubuntu, должен иметь право sudo. OpenSSH при установке необязателен: минимальную подготовку клона можно выполнить через консоль VirtualBox.
+
+После установки извлечь ISO, проверить вход `ubuntu/ubuntu` и выключить базовую ВМ:
+
+```bash
+sudo poweroff
+```
+
+Базовую ВМ сохранить для последующих клонов. На ней не нужно устанавливать PostgreSQL или выполнять плейбук настройки `master1`.
+
+## А2. Ручное клонирование базовой ноды
+
+При выключенной базовой ВМ:
+
+1. В VirtualBox нажать правой кнопкой по базовой Ubuntu → **Clone / Клонировать**.
+2. Указать имя нового клона **master1**.
+3. Выбрать **Generate new MAC addresses for all network adapters / Создать новые MAC-адреса для всех сетевых адаптеров**.
+4. Выбрать **Full clone / Полный клон** и завершить создание.
+
+Настроить **клон `master1`**, а не базовую ВМ:
+
+### Адаптер 1
+
+**NAT**, включён **Cable Connected**. В **Advanced → Port Forwarding** добавить:
+
+| Поле | Значение |
+| --- | --- |
+| Name | `ssh` |
+| Protocol | TCP |
+| Host IP | `127.0.0.1` |
+| Host Port | `2222` |
+| Guest IP | оставить пустым |
+| Guest Port | `22` |
+
+### Адаптер 2
+
+Включить **Bridged Adapter / Сетевой мост**, выбрать активный физический сетевой адаптер Windows и включить **Cable Connected**. В проверенной конфигурации используется `Intel(R) Wi-Fi 7 BE201 320MHz`; на другом компьютере выбрать его собственный активный адаптер.
+
+Базовую ВМ оставить выключенной. Запустить только `master1` и войти через консоль VirtualBox под `ubuntu`, пароль `ubuntu`.
+
+Имя ВМ в VirtualBox и hostname Ubuntu — разные настройки. Плейбук выполнит переименование ОС в `master1`. Если нужно сделать это до запуска автоматизации:
+
+```bash
+sudo hostnamectl set-hostname master1
+```
+
+Это необязательный ручной шаг: Ansible сам устанавливает имя из параметра `node_hostname` и обновляет `/etc/hosts`.
+
+## А3. Минимальная подготовка и клонирование репозитория
+
+В консоли Ubuntu выполнить:
+
+```bash
+sudo apt update
+sudo apt install -y git ansible-core
+git clone https://github.com/tsenturion/postgresql-ansible-lab.git
+cd postgresql-ansible-lab
+cp local.example.yml local.yml
+```
+
+При запросе sudo вводить пароль `ubuntu`. Весь репозиторий, включая архив PostgreSQL, будет склонирован в `~/postgresql-ansible-lab`.
+
+Проверить имена интерфейсов:
+
+```bash
+ip -br link
+```
+
+В проверенном клоне адаптеру NAT соответствует `enp0s3`, мосту — `enp0s8`. Если имена отличаются, указать свои значения `nat_interface` и `bridge_interface` в `local.yml`.
+
+## А4. Настройки своей ноды и открытый SSH-ключ
+
+На Windows в PowerShell вывести открытый ключ:
+
+```powershell
+Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub"
+```
+
+Если ключ ещё не создан, сначала выполнить:
+
+```powershell
+ssh-keygen -t ed25519
+```
+
+Закрытый файл `id_ed25519` остаётся на Windows. Передаётся только строка из `id_ed25519.pub`.
+
+В консоли клона открыть:
+
+```bash
+nano local.yml
+```
+
+Указать параметры своей сети и заменить образец ключа настоящей строкой:
+
+```yaml
+node_hostname: master1
+nat_interface: enp0s3
+bridge_interface: enp0s8
+bridge_address: 192.168.0.33/24
+postgres_allowed_subnet: 192.168.0.0/24
+ssh_public_keys:
+  - 'ssh-ed25519 ВАШ_ОТКРЫТЫЙ_КЛЮЧ'
+```
+
+`192.168.0.33` должен быть свободным адресом в вашей локальной сети. Для другой подсети изменить **оба** параметра: `bridge_address` и `postgres_allowed_subnet`.
+
+`local.yml` игнорируется Git. Плейбук добавит указанный открытый ключ в `authorized_keys` пользователей Ubuntu `ubuntu`, `admin` и `root`, с правами `700` на `.ssh` и `600` на `authorized_keys`. Вход SSH с Windows сможет использовать стандартный закрытый ключ без ввода пароля учётной записи. Если закрытый ключ защищён парольной фразой, его нужно разблокировать через SSH-agent либо ввести эту фразу при подключении.
+
+Учебные пароли по умолчанию:
+
+| Учётная запись | Пароль | Где используется |
+| --- | --- | --- |
+| Ubuntu `ubuntu` | `ubuntu` | Первичная консоль и sudo до настройки |
+| Ubuntu `admin` | `admin` | SSH по паролю, если ключ не используется |
+| Ubuntu `root` | `root` | SSH/SFTP по паролю, в том числе FileZilla |
+| PostgreSQL `postgres` | `admin` | TCP-подключения к PostgreSQL и DBeaver |
+
+Эти значения предназначены для учебной ВМ в локальной сети. При необходимости заменить `admin_password`, `root_password` и `postgres_password` в `local.yml` до запуска.
+
+## А5. Запуск .sh и Ansible
+
+Из каталога репозитория выполнить:
+
+```bash
+bash bootstrap.sh
+```
+
+Обёртка:
+
+1. Проверяет наличие `local.yml`.
+2. Использует доступную локаль `C.UTF-8`, чтобы запуск через SSH не зависел от локали терминала.
+3. При необходимости устанавливает `ansible-core` и Python-зависимость `passlib`.
+4. Выполняет `ansible-galaxy collection install -r requirements.yml`.
+5. Запускает `ansible-playbook site.yml -e @local.yml` от root через sudo.
+
+Устанавливать `community.postgresql` отдельной ручной командой не требуется. Обёртка делает это **перед** разбором плейбука, поскольку модули коллекции должны быть доступны уже при его загрузке. [Установка коллекций Ansible](https://docs.ansible.com/projects/ansible/latest/collections_guide/collections_installing.html).
+
+Плейбук устанавливает все компоненты, указанные в ручном варианте: библиотеки сборки, `--with-python`, `openpyxl`, `reportlab`, сервер, contrib и PL/Python. Для этого используются `make world-bin` и `make install-world-bin`; повторно отдельно собирать `pageinspect`, `pg_buffercache`, `pg_stat_statements` и `dblink` не нужно. [Описание сборки PostgreSQL](https://www.postgresql.org/docs/18/install-make.html).
+
+Архив из Git копируется в `/usr/local/src/postgresql-18.6.tar.gz`, исходники распаковываются в `/usr/local/src/postgresql-18.6`. После установки файлов плейбук создаёт в базе `postgres` расширения:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pageinspect;
+CREATE EXTENSION IF NOT EXISTS pg_buffercache;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+CREATE EXTENSION IF NOT EXISTS dblink;
+CREATE EXTENSION IF NOT EXISTS plpython3u;
+```
+
+Параметр `shared_preload_libraries = 'pg_stat_statements'` задаётся до запуска PostgreSQL. Кластер создаётся с UTF-8, ICU `ru-RU`, `peer` для Unix-сокета и SCRAM для TCP. Служба `postgresql-18` включается в автозапуск. Существующее в ручном варианте журналирование PostgreSQL и очистка журналов через 30 дней также настраиваются.
+
+В конце выполняется проверка пяти расширений: чтение страницы через `pageinspect`, просмотр буферов, запрос статистики, соединение через `dblink`, создание Excel и PDF в памяти через PL/Python.
+
+При успешном выполнении в `PLAY RECAP` должны быть `failed=0` и `unreachable=0`. После первого успешного запуска перезагрузить ноду, чтобы все процессы использовали новый machine-id клона:
+
+```bash
+sudo reboot
+```
+
+## А6. Подключения после установки
+
+### SSH из PowerShell
+
+В `%USERPROFILE%\.ssh\config` добавить или обновить только блоки `master1`:
+
+```sshconfig
+Host master1
+    HostName 192.168.0.33
+    User admin
+    Port 22
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+
+Host master1-admin
+    HostName 127.0.0.1
+    User admin
+    Port 2222
+
+Host master1-root
+    HostName 127.0.0.1
+    User root
+    Port 2222
+```
+
+Проверить:
+
+```powershell
+ssh master1
+ssh master1-admin
+ssh master1-root
+```
+
+Если предыдущую `master1` удалили и заменили новым клоном, ключ сервера SSH изменится. Убедившись, что подключение направлено к своему новому клону, удалить только старые записи заменённой ВМ:
+
+```powershell
+ssh-keygen -R "192.168.0.33"
+ssh-keygen -R "[127.0.0.1]:2222"
+ssh-keygen -R "[localhost]:2222"
+```
+
+При первом подключении принять ключ нового сервера.
+
+### FileZilla от root
+
+В **File → Site Manager → New site** задать:
+
+| Поле | Значение |
+| --- | --- |
+| Protocol | SFTP — SSH File Transfer Protocol |
+| Host | `127.0.0.1` |
+| Port | `2222` |
+| Logon Type | Normal |
+| User | `root` |
+| Password | `root` |
+
+Нажать **Connect** и при первом подключении принять ключ своей новой ВМ. Для этого входа дополнительная настройка ключа в FileZilla не требуется: используется пароль root.
+
+Для Ansible архив уже включён в репозиторий. Если понадобится вручную заменить или передать `.tar.gz`, слева открыть Downloads на Windows, справа — `/usr/local/src` на ноде и перетащить файл. Root может записывать в этот каталог напрямую.
+
+### DBeaver на Windows
+
+Открыть **Database → New Database Connection → PostgreSQL**:
+
+| Поле | Значение |
+| --- | --- |
+| Host | `192.168.0.33` |
+| Port | `5432` |
+| Database | `postgres` |
+| Username | `postgres` |
+| Password | `admin` |
+
+Нажать **Test Connection**, при запросе скачать JDBC-драйвер, затем **Finish**. Если параметры сети или пароль изменены в `local.yml`, использовать соответствующие значения.
+
+Для подключения через NAT на основной вкладке указать Host `127.0.0.1`, Port `5432`, Database `postgres`, Username `postgres`, Password `admin`. На вкладке **SSH** включить **Use SSH Tunnel**: Host `127.0.0.1`, Port `2222`, User `root`, аутентификация по паролю `root`. Порт `2222` относится к SSH, а `5432` — к PostgreSQL; пробрасывать `5432` в VirtualBox для SSH-туннеля не нужно.
+
+### Работа в psql на ноде
+
+После SSH-входа под root или admin:
+
+```bash
+sudo -u postgres /opt/postgresql/bin/psql -d postgres
+```
+
+Пароль PostgreSQL не запрашивается. Команда запускает клиент от Linux-пользователя `postgres`, с которым совпадает роль PostgreSQL при аутентификации `peer`.
+
+## А7. Проверка и повторный запуск
+
+На ноде:
+
+```bash
+hostnamectl --static
+ip -br address
+ip route
+systemctl is-active postgresql-18
+systemctl is-enabled postgresql-18
+sudo -u postgres /opt/postgresql/bin/psql -d postgres -c 'SELECT version();'
+sudo -u postgres /opt/postgresql/bin/psql -d postgres -c '\dx'
+sudo -u postgres /opt/postgresql/bin/psql -d postgres -c 'SHOW shared_preload_libraries;'
+```
+
+Ожидаются имя `master1`, адрес `192.168.0.33/24` на мосте, единственный IPv4-маршрут по умолчанию через NAT, активная служба с автозапуском, PostgreSQL 18.6 и все пять расширений.
+
+Для обновления файлов автоматизации и повторного применения от исходного пользователя `ubuntu`:
+
+```bash
+cd ~/postgresql-ansible-lab
+git pull --ff-only
+bash bootstrap.sh
+```
+
+`local.yml` сохраняется отдельно от отслеживаемых файлов Git. При повторном запуске существующий кластер не инициализируется заново; без изменения параметров или потери компонентов сервер не пересобирается. Применять этот плейбук нужно к выделенной учебной ноде: он управляет её Netplan, SSH и конфигурацией PostgreSQL.
+
+Проверенный результат на клоне базовой Ubuntu 26.04.1: полный запуск завершился без ошибок; повторное применение дало `changed=0`; после перезагрузки работают SSH по ключу, SFTP root по паролю и TCP-подключение к PostgreSQL с Windows.
+
 # Смысл последовательности установки
 
 Правильная логическая цепочка выглядит так:
@@ -1202,7 +1541,7 @@ sudo ss -lntp | grep ':5432'
 
 # Контрольный список
 
-- [ ] Создана только одна ВМ `master1`.
+- [ ] Рабочая нода `master1` создана и запущена; при варианте с Ansible базовая ВМ сохранена выключенной.
 - [ ] На адаптере 1 настроены NAT и проброс `127.0.0.1:2222 → 22`.
 - [ ] На адаптере 2 настроен сетевой мост.
 - [ ] Netplan содержит NAT с DHCP и мост со статическим адресом без второго маршрута по умолчанию.
